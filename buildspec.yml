@@ -40,6 +40,7 @@ phases:
 
 artifacts:
   files:
+    - imagedefinitions.json
     - docker-compose.yml
     - appspec.yml
     - scripts/**/*
