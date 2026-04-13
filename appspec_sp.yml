@@ -1,0 +1,24 @@
+version: 0.0
+os: linux
+
+files:
+  - source: docker-compose.yaml
+    destination: /opt/app
+  - source: nginx.conf
+    destination: /opt/app
+
+hooks:
+  BeforeInstall:
+    - location: scripts/stop.sh
+      timeout: 60
+      runas: ubuntu
+
+  AfterInstall:
+    - location: scripts/start.sh
+      timeout: 300
+      runas: ubuntu
+
+  ValidateService:
+    - location: scripts/validate.sh
+      timeout: 60
+      runas: ubuntu

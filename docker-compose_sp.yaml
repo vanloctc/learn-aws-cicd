@@ -1,0 +1,183 @@
+networks:
+  aiocr-network:
+    driver: bridge
+
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    restart: always
+    depends_on:
+      - gateway
+      - web_api
+    networks:
+      - aiocr-network
+
+  ingest_queue:
+    image: redis:7-alpine
+    container_name: ingest-queue
+    restart: always
+    command: redis-server --activedefrag yes --maxmemory 1gb --maxmemory-policy allkeys-lru
+    logging:
+      driver: "none"
+    networks:
+      - aiocr-network
+
+  aiocr_queue:
+    image: redis:7-alpine
+    container_name: aiocr-queue
+    restart: always
+    command: redis-server --activedefrag yes --maxmemory 1gb --maxmemory-policy allkeys-lru
+    logging:
+      driver: "none"
+    networks:
+      - aiocr-network
+
+  gateway:
+    image: 891377023838.dkr.ecr.ap-northeast-1.amazonaws.com/aiocr-demo/gateway:latest
+    container_name: gateway
+    expose:
+      - "8001"
+    restart: always
+    env_file:
+      - .env.x_api_key
+    environment:
+      - INGEST_QUEUE_URL=redis://ingest_queue:6379/0
+      - AWS_REGION=${AWS_REGION}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
+      - S3_PREFIX=${S3_PREFIX}
+      - S3_TIMEOUT=${S3_TIMEOUT}
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - INTERNAL_NOTIFY_CHANNEL=${INTERNAL_NOTIFY_CHANNEL}
+      - MEDILABAI_NOTIFY_CHANNEL=${MEDILABAI_NOTIFY_CHANNEL}
+      - SSL_MODE=${SSL_MODE}
+      - KUSUDAMA_TEST_URL=${KUSUDAMA_TEST_URL}
+      - KUSUDAMA_TEST_USN=${KUSUDAMA_TEST_USN}
+      - KUSUDAMA_TEST_PWD=${KUSUDAMA_TEST_PWD}
+      - KUSUDAMA_PROD_URL=${KUSUDAMA_PROD_URL}
+      - KUSUDAMA_PROD_USN=${KUSUDAMA_PROD_USN}
+      - KUSUDAMA_PROD_PWD=${KUSUDAMA_PROD_PWD}
+      - IP_ENV_MAP=${IP_ENV_MAP}
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ap-northeast-1
+        awslogs-group: AIOCRAppLog
+        awslogs-create-group: "true"
+        awslogs-stream: aiocr_stg
+        mode: non-blocking
+        max-buffer-size: "2m"
+    depends_on:
+      - ingest_queue
+    networks:
+      - aiocr-network
+
+  ingest_worker:
+    image: 891377023838.dkr.ecr.ap-northeast-1.amazonaws.com/aiocr-demo/ingest-worker:latest
+    restart: always
+    environment:
+      - INGEST_QUEUE_URL=redis://ingest_queue:6379/0
+      - AIOCR_QUEUE_URL=redis://aiocr_queue:6379/0
+      - INTERNAL_API_BASE=http://gateway:8001
+      - MEDILABAI_API_URL=${MEDILABAI_API_URL}
+      - IP_ENV_MAP=${IP_ENV_MAP}
+      - AWS_REGION=${AWS_REGION}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
+      - S3_PREFIX=${S3_PREFIX}
+      - S3_TIMEOUT=${S3_TIMEOUT}
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ap-northeast-1
+        awslogs-group: AIOCRAppLog
+        awslogs-create-group: "true"
+        awslogs-stream: aiocr_stg
+        mode: non-blocking
+        max-buffer-size: "4m"
+    depends_on:
+      - ingest_queue
+      - aiocr_queue
+    networks:
+      - aiocr-network
+
+  aiocr_worker:
+    image: 891377023838.dkr.ecr.ap-northeast-1.amazonaws.com/aiocr-demo/aiocr-worker:latest
+    restart: always
+    environment:
+      - AIOCR_QUEUE_URL=redis://aiocr_queue:6379/0
+      - INTERNAL_API_BASE=http://gateway:8001
+      - CLIENT=${CLIENT}
+      - MODEL=${MODEL}
+      - API_KEYS=${API_KEYS}
+      - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS}
+      - LLM_RETRY_COUNT=${LLM_RETRY_COUNT}
+      - MEDILABAI_API_URL=${MEDILABAI_API_URL}
+      - AWS_REGION=${AWS_REGION}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
+      - S3_PREFIX=${S3_PREFIX}
+      - S3_TIMEOUT=${S3_TIMEOUT}
+    deploy:
+      replicas: 6
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 8G
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ap-northeast-1
+        awslogs-group: AIOCRAppLog
+        awslogs-create-group: "true"
+        awslogs-stream: aiocr_stg
+        mode: non-blocking
+        max-buffer-size: "4m"
+    depends_on:
+      - aiocr_queue
+    networks:
+      - aiocr-network
+
+  web_api:
+    image: 891377023838.dkr.ecr.ap-northeast-1.amazonaws.com/aiocr-demo/web-api:latest
+    container_name: web-api
+    expose:
+      - "8002"
+    restart: always
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - SSL_MODE=${SSL_MODE}
+      - INGEST_QUEUE_URL=redis://ingest_queue:6379/0
+      - AWS_REGION=${AWS_REGION}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
+      - S3_PREFIX=${S3_PREFIX}
+      - S3_TIMEOUT=${S3_TIMEOUT}
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ap-northeast-1
+        awslogs-group: AIOCRAppLog
+        awslogs-create-group: "true"
+        awslogs-stream: aiocr_stg
+        mode: non-blocking
+        max-buffer-size: "4m"
+    depends_on:
+      - ingest_queue
+    networks:
+      - aiocr-network

@@ -1,0 +1,51 @@
+version: 0.2
+
+env:
+  variables:
+    AWS_REGION: ap-northeast-1
+    ACCOUNT_ID: "891377023838"
+    ECR_REGISTRY: "891377023838.dkr.ecr.ap-northeast-1.amazonaws.com"
+
+phases:
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR...
+      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
+      - IMAGE_TAG=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c1-7)
+      - echo Downloading jsonkey.json from SSM...
+      - aws ssm get-parameter --name "/aiocr-demo/google/jsonkey" --with-decryption --query "Parameter.Value" --output text --region $AWS_REGION > jsonkey.json
+
+  build:
+    commands:
+      - echo Building Docker images...
+      - docker build -t $ECR_REGISTRY/aiocr-demo/gateway:$IMAGE_TAG -f ./gateway/Dockerfile .
+      - docker build -t $ECR_REGISTRY/aiocr-demo/ingest-worker:$IMAGE_TAG -f ./ingest_worker/Dockerfile .
+      - docker build -t $ECR_REGISTRY/aiocr-demo/aiocr-worker:$IMAGE_TAG -f ./aiocr_worker/Dockerfile .
+      - docker build -t $ECR_REGISTRY/aiocr-demo/web-api:$IMAGE_TAG -f ./web_api/Dockerfile .
+
+  post_build:
+    commands:
+      - echo Pushing images to ECR...
+      - docker push $ECR_REGISTRY/aiocr-demo/gateway:$IMAGE_TAG
+      - docker push $ECR_REGISTRY/aiocr-demo/ingest-worker:$IMAGE_TAG
+      - docker push $ECR_REGISTRY/aiocr-demo/aiocr-worker:$IMAGE_TAG
+      - docker push $ECR_REGISTRY/aiocr-demo/web-api:$IMAGE_TAG
+
+      - docker tag $ECR_REGISTRY/aiocr-demo/gateway:$IMAGE_TAG $ECR_REGISTRY/aiocr-demo/gateway:latest
+      - docker tag $ECR_REGISTRY/aiocr-demo/ingest-worker:$IMAGE_TAG $ECR_REGISTRY/aiocr-demo/ingest-worker:latest
+      - docker tag $ECR_REGISTRY/aiocr-demo/aiocr-worker:$IMAGE_TAG $ECR_REGISTRY/aiocr-demo/aiocr-worker:latest
+      - docker tag $ECR_REGISTRY/aiocr-demo/web-api:$IMAGE_TAG $ECR_REGISTRY/aiocr-demo/web-api:latest
+
+      - docker push $ECR_REGISTRY/aiocr-demo/gateway:latest
+      - docker push $ECR_REGISTRY/aiocr-demo/ingest-worker:latest
+      - docker push $ECR_REGISTRY/aiocr-demo/aiocr-worker:latest
+      - docker push $ECR_REGISTRY/aiocr-demo/web-api:latest
+
+      - echo Build completed!
+
+artifacts:
+  files:
+    - docker-compose.yaml
+    - appspec.yml
+    - nginx.conf
+    - scripts/**/*

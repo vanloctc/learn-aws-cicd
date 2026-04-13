@@ -1,129 +1,34 @@
-# ─────────────────────────────────────────────────────────────────────────────
-# buildspec.yml  –  AWS CodeBuild configuration
-#
-# Phases:
-#   install  → runtime + pip deps
-#   pre_build → lint / unit tests
-#   build    → package artifact
-#   post_build → report
-#
-# Artifacts are uploaded to S3 and picked up by CodeDeploy via CodePipeline.
-# ─────────────────────────────────────────────────────────────────────────────
-
 version: 0.2
-
-# ─────────────────────────────────────────────────────────────────────────────
-# buildspec.yml — AWS CodeBuild  (ECS target)
-#
-# Flow:
-#   install    → Python deps để chạy tests
-#   pre_build  → Login ECR + lint + unit tests
-#   build      → Docker build & push to ECR
-#   post_build → Tạo imageDefinitions.json cho CodePipeline ECS deploy
-# ─────────────────────────────────────────────────────────────────────────────
 
 env:
   variables:
-    APP_VERSION:    "1.0.0"
-    DEPLOY_ENV:     "production"
-    CONTAINER_NAME: "realtime-clock"
-    # Các biến dưới đây được CodePipeline / Environment tự inject:
-    # AWS_DEFAULT_REGION, AWS_ACCOUNT_ID, IMAGE_REPO_NAME
-  # Lấy từ Parameter Store (tuỳ chọn):
-  # parameter-store:
-  #   IMAGE_REPO_NAME: "/realtime-clock/ecr-repo-name"
+    AWS_REGION: ap-northeast-1
+    ACCOUNT_ID: "618077882381"
+    ECR_REGISTRY: "618077882381.dkr.ecr.ap-northeast-1.amazonaws.com"
+    IMAGE_REPO_NAME: "sample-cicd"
 
 phases:
-
-  install:
-    runtime-versions:
-      python: 3.11
-    commands:
-      - echo "=== [INSTALL] ==="
-      - pip install --upgrade pip --quiet
-      - pip install -r requirements.txt --quiet
-      - pip install pytest flake8 --quiet
-
   pre_build:
     commands:
-      - echo "=== [PRE_BUILD] Lint + Test + ECR Login ==="
-
-      # ── Unit tests ───────────────────────────────────────────────────────
-      - flake8 app.py --max-line-length=120 || true
-      - pytest tests/ -v --tb=short --junitxml=test-results/results.xml
-
-      # ── Xác định IMAGE_TAG từ commit SHA (7 ký tự) ──────────────────────
-      - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
-      - IMAGE_TAG=${COMMIT_HASH:-latest}
-      - ECR_URI=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${IMAGE_REPO_NAME}
-      - echo "ECR URI   → $ECR_URI"
-      - echo "Image tag → $IMAGE_TAG"
-
-      # ── Đăng nhập Amazon ECR ─────────────────────────────────────────────
-      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ECR_URI
-      - echo "ECR login successful"
+      - echo Logging in to Amazon ECR...
+      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
+      - IMAGE_TAG=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c1-7)
+      - echo Image tag is $IMAGE_TAG
 
   build:
     commands:
-      - echo "=== [BUILD] Docker build & push ==="
-      - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
-      - IMAGE_TAG=${COMMIT_HASH:-latest}
-      - ECR_URI=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${IMAGE_REPO_NAME}
-
-      # ── Build image ──────────────────────────────────────────────────────
-      - docker build
-          --build-arg APP_VERSION=$APP_VERSION
-          --build-arg BUILD_ID=$CODEBUILD_BUILD_ID
-          -t ${ECR_URI}:${IMAGE_TAG}
-          -t ${ECR_URI}:latest
-          .
-
-      # ── Push cả 2 tags (commit-sha + latest) ────────────────────────────
-      - docker push ${ECR_URI}:${IMAGE_TAG}
-      - docker push ${ECR_URI}:latest
-      - echo "Image pushed → ${ECR_URI}:${IMAGE_TAG}"
+      - echo Building Docker image...
+      - docker build -f Dockerfile -t $ECR_REGISTRY/$IMAGE_REPO_NAME:$IMAGE_TAG -t $ECR_REGISTRY/$IMAGE_REPO_NAME:latest .
 
   post_build:
     commands:
-      - echo "=== [POST_BUILD] Generate deployment artifacts ==="
-      - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
-      - IMAGE_TAG=${COMMIT_HASH:-latest}
-      - ECR_URI=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${IMAGE_REPO_NAME}
+      - echo Pushing Docker images to ECR...
+      - docker push $ECR_REGISTRY/$IMAGE_REPO_NAME:$IMAGE_TAG
+      - docker push $ECR_REGISTRY/$IMAGE_REPO_NAME:latest
+      - echo Build completed successfully.
 
-      # ── imageDefinitions.json → dùng bởi CodePipeline ECS standard deploy
-      - |
-        printf '[{"name":"%s","imageUri":"%s"}]' \
-          "$CONTAINER_NAME" "${ECR_URI}:${IMAGE_TAG}" \
-          > imageDefinitions.json
-      - echo "imageDefinitions.json → $(cat imageDefinitions.json)"
-
-      # ── imagedefinitions cho Blue/Green (CodeDeploy ECS)
-      - |
-        cat > imageDetail.json <<EOF
-        {
-          "ImageURI": "${ECR_URI}:${IMAGE_TAG}"
-        }
-        EOF
-      - echo "imageDetail.json → $(cat imageDetail.json)"
-
-      - echo "Build complete — $CODEBUILD_BUILD_ARN"
-
-# ── Artifacts gửi cho CodePipeline ────────────────────────────────────────
 artifacts:
   files:
-    - imageDefinitions.json    # ECS Rolling update
-    - imageDetail.json         # ECS Blue/Green (CodeDeploy)
-    - appspec.yml              # CodeDeploy ECS
-    - ecs/task-definition.json # Task definition template
-  discard-paths: no
-
-# ── Cache Docker layers & pip ──────────────────────────────────────────────
-cache:
-  paths:
-    - '/root/.cache/pip/**/*'
-
-reports:
-  pytest_reports:
-    files:
-      - 'test-results/results.xml'
-    file-format: JUNITXML
+    - docker-compose.yml
+    - appspec.yml
+    - scripts/**/*
