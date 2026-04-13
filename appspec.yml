@@ -1,0 +1,44 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# appspec.yml  –  AWS CodeDeploy configuration  (EC2 / On-Premises)
+#
+# Lifecycle hooks (in order):
+#   ApplicationStop        → scripts/stop_server.sh
+#   BeforeInstall          → scripts/before_install.sh
+#   AfterInstall           → scripts/install_dependencies.sh
+#   ApplicationStart       → scripts/start_server.sh
+#   ValidateService        → scripts/validate_service.sh
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────────────────
+# appspec.yml — AWS CodeDeploy  (ECS Blue/Green deployment)
+#
+# Khác với EC2:
+#   • version phải là "0.0"
+#   • Resources trỏ vào ECS Service + Task Definition
+#   • Hooks là Lambda ARN (tuỳ chọn) — bỏ trống nếu không dùng
+# ─────────────────────────────────────────────────────────────────────────────
+
+version: 0.0
+
+Resources:
+  - TargetService:
+      Type: AWS::ECS::Service
+      Properties:
+        TaskDefinition: <TASK_DEFINITION>       # CodeDeploy tự thay thế
+        LoadBalancerInfo:
+          ContainerName: "realtime-clock"
+          ContainerPort: 8080
+        PlatformVersion: "LATEST"
+        NetworkConfiguration:
+          AwsvpcConfiguration:
+            Subnets:
+              - <SUBNET_1>
+              - <SUBNET_2>
+            SecurityGroups:
+              - <SECURITY_GROUP_ID>
+            AssignPublicIp: "ENABLED"
+
+# ── Lifecycle Hooks (tuỳ chọn — gắn Lambda để smoke test trước traffic shift)
+Hooks:
+  - BeforeAllowTraffic: ""   # ARN Lambda (để trống = bỏ qua)
+  - AfterAllowTraffic:  ""

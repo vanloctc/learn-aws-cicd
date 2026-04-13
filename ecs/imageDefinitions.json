@@ -1,0 +1,6 @@
+[
+  {
+    "name":       "realtime-clock",
+    "imageUri":   "ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/realtime-clock:IMAGE_TAG"
+  }
+]

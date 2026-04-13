@@ -1,0 +1,27 @@
+# docker-compose.yml — chạy local để test trước khi push lên ECS
+# Sử dụng: docker compose up --build
+
+version: "3.9"
+
+services:
+  realtime-clock:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: realtime-clock:local
+    container_name: realtime-clock
+    ports:
+      - "8080:8080"
+    environment:
+      FLASK_ENV: development
+      PORT: "8080"
+      WORKERS: "1"
+      APP_VERSION: "local"
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped

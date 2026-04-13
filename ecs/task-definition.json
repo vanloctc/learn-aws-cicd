@@ -1,0 +1,53 @@
+{
+  "family": "realtime-clock",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskExecutionRole",
+  "taskRoleArn":      "arn:aws:iam::ACCOUNT_ID:role/ecsTaskRole",
+
+  "containerDefinitions": [
+    {
+      "name": "realtime-clock",
+      "image": "ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/realtime-clock:latest",
+      "essential": true,
+
+      "portMappings": [
+        {
+          "containerPort": 8080,
+          "protocol": "tcp"
+        }
+      ],
+
+      "environment": [
+        { "name": "FLASK_ENV",    "value": "production" },
+        { "name": "PORT",         "value": "8080" },
+        { "name": "WORKERS",      "value": "2" },
+        { "name": "DEPLOY_ENV",   "value": "production" }
+      ],
+
+      "secrets": [],
+
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group":         "/ecs/realtime-clock",
+          "awslogs-region":        "REGION",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+
+      "healthCheck": {
+        "command":     ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/health')\" || exit 1"],
+        "interval":    30,
+        "timeout":     5,
+        "retries":     3,
+        "startPeriod": 10
+      },
+
+      "readonlyRootFilesystem": false,
+      "privileged":             false
+    }
+  ]
+}

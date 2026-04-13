@@ -1,0 +1,13 @@
+# .dockerignore
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+tests/
+scripts/
+cloudformation/
+*.md
+*.zip
+.env*
+.git/
+.gitignore
