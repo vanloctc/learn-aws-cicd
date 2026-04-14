@@ -6,9 +6,22 @@ Author  : AWS Expert Demo
 
 import os
 import logging
+import socket
 from datetime import datetime
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, request
 from flask_cors import CORS
+
+
+def get_server_ip():
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(("8.8.8.8", 80))
+            return sock.getsockname()[0]
+    except Exception:
+        try:
+            return socket.gethostbyname(socket.gethostname())
+        except Exception:
+            return "unknown"
 
 # ─── App Factory ────────────────────────────────────────────────────────────
 def create_app():
@@ -33,12 +46,17 @@ def create_app():
     def get_time():
         """Return current server time as JSON (polled by front-end)."""
         now = datetime.now()
+        client_ip = request.headers.get("X-Forwarded-For", request.remote_addr)
+        if client_ip:
+            client_ip = client_ip.split(",")[0].strip()
         return jsonify(
             {
                 "time": now.strftime("%H:%M:%S"),
                 "date": now.strftime("%A, %d %B %Y"),
                 "timestamp": now.isoformat(),
                 "timezone": str(datetime.now().astimezone().tzname()),
+                "server_ip": get_server_ip(),
+                "client_ip": client_ip,
             }
         )
 
